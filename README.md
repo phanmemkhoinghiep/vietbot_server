@@ -30,6 +30,10 @@ seq (4 byte, Audio PCM n byte)
 
 
 ```mermaid
+%% Arrows:
+%% ->>  : request / action
+%% -->> : response / async result
+
 sequenceDiagram
     participant User
     participant Client
