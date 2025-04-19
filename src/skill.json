@@ -1,0 +1,33 @@
+{
+	"time": {
+		"error_answer": "Không thực hiện được tra cứu thời gian, hãy kiểm tra lại"
+	},
+	"solar_calendar": {
+		"error_answer": "Không thực hiện được tra cứu lịch âm, hãy kiểm tra lại"
+	},
+	"lunar_calendar": {
+		"error_answer": "Không thực hiện được tra cứu lịch âm, hãy kiểm tra lại"
+	},
+	"weather": {
+		"openweathermap_key": "ffddsdfsdfsd8sfsd070b",
+		"temp_delta": 255,
+		"error_answer": "Không thực hiện được tra cứu thời tiết khu vực, hãy kiểm tra lại"
+	},
+	"music": {
+		"error_answer": "Không thực hiện được phát nhạc, hãy kiểm tra lại",
+		"local_compare_percent": 80
+	},
+	"cache_compare_result": 95,
+	"gemini": {
+		"error_answer": "Không thực hiện được Gemini, hãy kiểm tra lại",
+		"api": "AIzaSyA-fsdfsdfsdf",
+		"model": "gemini-2.0-flash",
+		"error_answer": "Không sử dụng được chatbot gemini, hãy kiểm tra lại"		
+	},
+	"name": "Nguyễn Duy",
+	"address": {
+		"wards": "Phường Nhân Hòa",
+		"district": "Quận Cầu Giấy",
+		"province": "Thành phố Hà Nội"
+	}
+}

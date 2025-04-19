@@ -1,0 +1,146 @@
+{
+    "logging_type": "INFO", 
+    "address": {
+        "public": "vietbot.vn",
+        "local": "0.0.0.0"
+    },
+    "http_interface": {
+        "secure_port": 443,
+        "port": 80
+    },
+    "ws_interface": {
+        "secure_port": 445,
+        "port": 444
+    },
+    "broker": {
+        "host": "broker.vietbot.vn",
+        "port": 1883,
+        "username": "admin",
+        "password": "vietbot123"
+    },
+    "server": {
+        "topic_prefix": "loapay",
+        "group": "dev",
+        "name": "voice_gateway",
+        "sub_topic": "state",
+        "pub_topic": "controll"
+    },
+    "client": {
+        "topic_prefix": "loapay",
+        "pub_message_topic": "client_msg",
+        "pub_audio_topic": "client_audio",
+        "sub_message_topic": "server_msg",
+        "group": "dev",
+        "package_timeout": 2,
+        "session_timeout": 60,
+		"list_detecting_client": [{
+				"hw_id": ""
+			},
+			{
+				"hw_id": ""
+			},
+			{
+				"hw_id": ""
+			}
+
+		],	
+		"list_audio_sending_client": [{
+				"hw_id": ""
+			},
+			{
+				"hw_id": ""
+			},
+			{
+				"hw_id": ""
+			}
+
+		],		
+		"list_transcoding_client": [{
+				"hw_id": ""
+			},
+			{
+				"hw_id": ""
+			},
+			{
+				"hw_id": ""
+			}
+
+		],	
+		"list_text_procesing_client": [{
+				"hw_id": ""
+			},
+			{
+				"hw_id": ""
+			},
+			{
+				"hw_id": ""
+			}
+
+		],	
+		"list_tts_procesing_client": [{
+				"hw_id": ""
+			},
+			{
+				"hw_id": ""
+			},
+			{
+				"hw_id": ""
+			}
+
+		],		
+		"list_tts_conecting_client": [{
+				"hw_id": ""
+			},
+			{
+				"hw_id": ""
+			},
+			{
+				"hw_id": ""
+			}
+
+		],	
+		"list_mp3_conecting_client": [{
+				"hw_id": ""
+			},
+			{
+				"hw_id": ""
+			},
+			{
+				"hw_id": ""
+			}
+
+		]			
+    },
+    "stt": {
+        "channels": 1,
+        "rate": 16000,
+        "mode": "stt_gg_cloud",
+        "recognizer_id": "vietbot",
+        "ggcloud_project_id": "vietbot_123456",
+        "token": "",
+        "credential": "google_stt.json",
+        "timeout": 6,
+        "lang": "vi-VN"
+    },
+    "tts": {
+        "mode": "tts_gg_cloud",
+        "voice_name": "female_southern_voice",
+        "voice_profile": "",
+        "speed": 1.2,
+        "rate": 16000,
+        "pitch": "",
+        "token": "",
+        "credential": "google_tts.json",
+        "tts_gg_cloud_url": "https://cxl-services.appspot.com/proxy?url=https://texttospeech.googleapis.com/v1beta1/text:synthesize",
+        "tts_viettel_url": "https://viettelgroup.ai/voice/api/tts/v1/rest/syn",
+        "tts_zalo_url": "https://api.zalo.ai/v1/tts/synthesize",
+        "tts_fpt_url": "https://api.fpt.ai/hmi/tts/v5",
+        "temp_dir": "/tmp/tts",
+        "save_dir": "tts",
+        "file_age": 7,
+        "lang": "vi-VN"
+    },
+    "skill": {
+        "timeout": 8
+    }
+}
