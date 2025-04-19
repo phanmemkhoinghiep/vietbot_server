@@ -31,25 +31,45 @@ seq (4 byte, Audio PCM n byte)
 
 ```mermaid
 sequenceDiagram
+    participant User
     participant Client
     participant Server
     participant STTServer as STT Server
-    Client->>Server: [1] Send message to announce going to send audio
-    Note right of Server: [2] Ready to receive (Within Server)
-    Client->>Server: [3] Send one by one audio package
-    Note right of Server: [4] Receive each audio package from Client
-    Server->>STTServer: [5] Forward audio package to STT Server
 
-    STTServer-->>Server: [6] Get each transcript from STT Server
+    User->>Client: [1] Wake up Client
+    Client->>User: [2] Indicate readiness via LED, LCD, or sound
 
-    Client->>Server: [8] Continue sending
+    Client->>Server: [3] Send message to announce start of audio transmission
+    Note right of Server: [4] Server ready to receive
+
+    User->>Client: [5] Speak a voice command
+    Note right of Server: [6] Streamed audio is received and split into packages
+
+    Client->>Server: [7] Send audio packages one by one
+    Note right of Server: [8] Receive each audio package from Client
+
     Server->>STTServer: [9] Forward audio package to STT Server
+    STTServer-->>Server: [10] Receive partial transcripts
 
-    STTServer-->>Server: [10] Get final transcript
-    Server-->>Client: [11] Send message back to Client to announce finished transcoding
-    Note right of Server: [12] Process text from final transcript (Within Server)
-    Server-->>Client: [13] Send message back to Client to announce finished text processing
-    Note right of Server: [14] Create TTS file from answer (Within Server)
-    Note right of Server: [15] Create TTS Link, MP3 Link from answer (Within Server)
-    Server-->>Client: [16] Send message back to Client with tts link, music link
+    Client->>Server: [11] Continue sending audio
+    Server->>STTServer: [12] Continue forwarding to STT Server
 
+    STTServer-->>Server: [13] Receive final transcript
+    Server-->>Client: [14] Notify Client that transcription is complete
+
+    Client->>User: [15] Optionally display the request via LED or console
+
+    Note right of Server: [16] Process final transcript
+    Server-->>Client: [17] Optionally notify Client that processing will take longer
+    Client->>User: [18] Optionally display delay message via LED, console, or sound
+
+    Server-->>Client: [19] Notify Client that text processing is complete
+    Client->>User: [20] Optionally display the answer via LED, console, or sound
+
+    Note right of Server: [21] Generate TTS file from answer
+    Note right of Server: [22] Create TTS and music links
+
+    Server-->>Client: [23] Send TTS and music links
+    Note right of Server: [24] Playback audio from the provided link
+
+    Client->>User: [25] Output answer via speaker
