@@ -5,7 +5,6 @@ sequenceDiagram
     participant Client
     participant Server
     participant STTServer as STT Server
-
     Client->>Server: [1] Send message to annouce going to Send audio
     Note right of Server: [2] Ready to receive (Within Server)
     Client->>Server: [3] Send one bye one audio package
