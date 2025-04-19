@@ -1,29 +1,29 @@
 # vietbot_server
-This is audio micro service listen streaming request from client, then response with tts_link or music_link
+"This is an audio microservice that listens for streaming requests from all clients via the client topic on the broker, forwards them to the STT server, processes to get the final text, generates the TTS file based on the processed of final text, and responds to the client with the TTS link or music link."
 Danh mục các bản tin Server và Client gửi cho nhau:
-1. Client gửi Server
-1.1. Bản tin thông báo chuẩn bị gửi Audio
+1. Client sends to Server
+1.1. Message announcing preparation to send Audio
 ```sh
 {"state":"start_send", "package_size": <size_of_package>}
 ```
-1.2. Bản tin Audio
+1.2. Audio message
 ```sh
 seq (4 byte, Audio PCM n byte)
 ```
-2. Server gửi Client
-2.1. Bản tin báo đã có kết quả STT
+2. Server sends to Client
+2.1. Message indicating STT final result is available
 ```sh
 {"state": "finish_transcoding","request":<transcript>}
 ```
-2.2. Bản tin thông báo chờ xử lý text
+2.2. Message announcing waiting for text processing
 ```sh
 {"state": "wait_text_processing"}
 ```
-2.3. Bản tin thông báo đã kết thúc xử lý text và có câu trả lời
+2.3. Message announcing text processing is finished and an answer is available
 ```sh
 {"state": "finish_text_process","answer":<answer>}
 ```
-2.3. Bản tin thông báo đã kết thúc quá trình tts, các link tts và music tương ứng
+2.4. Message announcing TTS processing is finished, with corresponding TTS and music links
 ```sh
 {"state": "finish_tts_process","answer":<answer>,"answer_link":<link>,"music_link":<link>}
 ```
