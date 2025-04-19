@@ -6,10 +6,9 @@ sequenceDiagram
     participant Server
     participant STTServer as STT Server
 
-    Client->>Server: [1] Request send
+    Client->>Server: [1] Send message to annouce going to Send audio
     Note right of Server: [2] Ready to receive (Within Server)
-
-    Client->>Server: [3] Send audio
+    Client->>Server: [3] Send one bye one audio package
     Note right of Server: [4] Receive each audio package from Client
     Server->>STTServer: [5] Foward audio package to STT Server
 
@@ -19,6 +18,7 @@ sequenceDiagram
     Server->>STTServer: [9] Foward audio package to STT Server
 
     STTServer-->>Server: [10] Get final transcript
+    Server-->>Client: [11] Send mesage back to Client to annouce finised transcoding
     Note right of Server: [12] Process text from final transcript (Within Server)
     Note right of Server: [13] Create TTS file from answer (Within Server)
     Note right of Server: [14] Create TTS Link, MP3 Link from answer (Within Server)
