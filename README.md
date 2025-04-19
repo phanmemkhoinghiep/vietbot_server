@@ -5,7 +5,7 @@ sequenceDiagram
     participant Client
     participant Server
     participant STTServer as STT Server
-    Client->>Server: "[1] Send message to announce going to send audio\\n{\"state\":\"start_send\", \"package_size\": <size_of_package>}"
+    Client->>Server: "[1] Send message to announce going to send audio
     Note right of Server: [2] Ready to receive (Within Server)
     Client->>Server: [3] Send one by one audio package
     Note right of Server: [4] Receive each audio package from Client
@@ -17,9 +17,9 @@ sequenceDiagram
     Server->>STTServer: [9] Forward audio package to STT Server
 
     STTServer-->>Server: [10] Get final transcript
-    Server-->>Client: [11] Send message back to Client to announce finished transcoding\\n{\"state\":\"finish_transcoding\", \"request\": <transcript>}"
+    Server-->>Client: [11] Send message back to Client to announce finished transcoding
     Note right of Server: [12] Process text from final transcript (Within Server)
     Note right of Server: [13] Create TTS file from answer (Within Server)
     Note right of Server: [14] Create TTS Link, MP3 Link from answer (Within Server)
 
-    Server-->>Client: [15] Send message back to Client with tts link, music link\\n{\"answer\":\"<answer>\", \"tts_link\": <tts_link>, \"music_link\": <music_link>}"
+    Server-->>Client: [15] Send message back to Client with tts link, music link
