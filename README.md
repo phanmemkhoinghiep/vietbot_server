@@ -1,6 +1,6 @@
 # vietbot_server
 "This is an audio microservice that listens for streaming requests from all clients via the client topic on the broker, forwards them to the STT server, processes to get the final text, generates the TTS file based on the processed of final text, and responds to the client with the TTS link or music link."
-Danh mục các bản tin Server và Client gửi cho nhau:
+This is the list of message from Client& Server:
 1. Client sends to Server
 1.1. Message announcing preparation to send Audio
 ```sh
