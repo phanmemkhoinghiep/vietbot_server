@@ -5,7 +5,7 @@ sequenceDiagram
     participant Client
     participant Server
     participant STTServer as STT Server
-    Client->>Server: [1] Send message to annouce going to Send audio {"state":"start_send", "package_size": <size_of_package>}
+    Client->>Server: [1] Send message to annouce going to Send audio \\n {"state":"start_send", "package_size": <size_of_package>}
     Note right of Server: [2] Ready to receive (Within Server)
     Client->>Server: [3] Send one bye one audio package
     Note right of Server: [4] Receive each audio package from Client
