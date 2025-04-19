@@ -70,6 +70,6 @@ sequenceDiagram
     Note right of Server: [22] Create TTS and music links
 
     Server-->>Client: [23] Send TTS and music links
-    Note right of Server: [24] Playback audio from the provided link
+    Note right of Client: [24] Playback audio from the provided link
 
     Client->>User: [25] Output answer via speaker
