@@ -1,7 +1,8 @@
 # vietbot_server
 "This is an audio microservice that listens for streaming requests from all clients via the client topic on the broker, forwards them to the STT server, processes to get the final text, generates the TTS file based on the processed of final text, and responds to the client with the TTS link or music link."
-This is the list of message from Client& Server:
+# This is the list of message from Client& Server:
 1. Client sends to Server
+   
 1.1. Message announcing preparation to send Audio
 ```sh
 {"state":"start_send", "package_size": <size_of_package>}
@@ -27,7 +28,7 @@ seq (4 byte, Audio PCM n byte)
 ```sh
 {"answer":<answer>,"answer_link":<answer_link>,"music_link":<music_link>}
 ```
-
+# This is the diagram
 
 ```mermaid
 %% Arrows:
