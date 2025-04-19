@@ -48,8 +48,8 @@ sequenceDiagram
     STTServer-->>Server: [10] Get final transcript
     Server-->>Client: [11] Send message back to Client to announce finished transcoding
     Note right of Server: [12] Process text from final transcript (Within Server)
-    Note right of Server: [13] Create TTS file from answer (Within Server)
-    Note right of Server: [14] Create TTS Link, MP3 Link from answer (Within Server)
-
-    Server-->>Client: [15] Send message back to Client with tts link, music link
+    Server-->>Client: [13] Send message back to Client to announce finished text processing
+    Note right of Server: [14] Create TTS file from answer (Within Server)
+    Note right of Server: [15] Create TTS Link, MP3 Link from answer (Within Server)
+    Server-->>Client: [16] Send message back to Client with tts link, music link
 
