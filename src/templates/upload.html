@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Upload & Generate TTS</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        h1 { color: #333; }
+        form { margin-bottom: 20px; }
+        input, textarea, button { padding: 8px; margin: 4px 0; width: 100%; max-width: 500px; }
+        .result { margin-top: 10px; padding: 10px; background: #f2f2f2; border: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+    <h1>Upload MP3 File</h1>
+    <form id="upload-form" action="/upload" method="post" enctype="multipart/form-data">
+        <input type="file" name="file" accept=".mp3" required>
+        <button type="submit">Upload</button>
+    </form>
+    <h2>📁 Danh sách file MP3 hiện có:</h2>
+    <ul>
+        {% for file in files %}
+            <li><a href="/mp3/{{ file }}" target="_blank">{{ file }}</a></li>
+        {% else %}
+            <li><i>Không có file nào.</i></li>
+        {% endfor %}
+    </ul>
+    <div id="upload-result" class="result"></div>
+
+    <hr>
+
+    <h1>Generate TTS</h1>
+    <form id="tts-form" method="post">
+        <textarea name="tts_text" rows="4" placeholder="Enter text for TTS..." required></textarea>
+        <button type="submit">Generate TTS</button>
+    </form>
+    <div id="tts-result" class="result"></div>
+
+    <script>
+        // Xử lý form upload file
+        const uploadForm = document.getElementById('upload-form');
+        const uploadResult = document.getElementById('upload-result');
+        uploadForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const formData = new FormData(uploadForm);
+            const response = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+            if (result.file_url) {
+                uploadResult.innerHTML = `✅ File uploaded: <a href="${result.file_url}" target="_blank">${result.file_url}</a>`;
+            } else {
+                uploadResult.innerText = `❌ Error: ${result.error}`;
+            }
+        });
+
+        // Xử lý form Generate TTS
+        const ttsForm = document.getElementById('tts-form');
+        const ttsResult = document.getElementById('tts-result');
+        ttsForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const formData = new FormData(ttsForm);
+            const response = await fetch('/generate-tts', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+            if (result.file_url) {
+                ttsResult.innerHTML = `✅ TTS file: <a href="${result.file_url}" target="_blank">${result.file_url}</a>`;
+            } else {
+                ttsResult.innerText = `❌ Error: ${result.error}`;
+            }
+        });
+    </script>
+</body>
+</html>
