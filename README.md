@@ -25,7 +25,7 @@ seq (4 byte, Audio PCM n byte)
 ```
 2.4. Message announcing TTS processing is finished, with corresponding TTS and music links
 ```sh
-{"state": "finish_tts_process","answer":<answer>,"answer_link":<link>,"music_link":<link>}
+{"state": "finish_tts_process","answer":<answer>,"answer_link":<answer_link>,"music_link":<music_link>}
 ```
 
 
