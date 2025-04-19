@@ -38,43 +38,48 @@ seq (4 byte, Audio PCM n byte)
 sequenceDiagram
     participant User
     participant Client
+    participant Broker
     participant Server
     participant STTServer as STT Server
 
     User->>Client: [1] Wake up Client
     Client->>User: [2] Indicate readiness via LED, LCD, or sound
 
-    Client->>Server: [3] Send message to announce start of audio transmission
-    Note right of Server: [4] Server ready to receive
+    Client->>Broker: [3] Publish message: start of audio transmission
+    Server->>Broker: [4] Subscribe to topic for incoming audio
+    Broker-->>Server: [5] Deliver start message to Server
+    Note right of Server: [6] Server ready to receive audio
 
-    User->>Client: [5] Speak a voice command
-    Note right of Server: [6] Streamed audio is received and split into packages
+    User->>Client: [7] Speak a voice command
+    Note right of Client: [8] Capture and stream audio
 
-    Client->>Server: [7] Send audio packages one by one
-    Note right of Server: [8] Receive each audio package from Client
+    Client->>Broker: [9] Publish audio packages one by one
+    Broker-->>Server: [10] Deliver each audio package to Server
+    Note right of Server: [11] Receive and handle each audio package
 
-    Server->>STTServer: [9] Forward audio package to STT Server
-    STTServer-->>Server: [10] Receive partial transcripts
+    Server->>STTServer: [12] Forward audio package to STT Server
+    STTServer-->>Server: [13] Receive partial transcript
 
-    Client->>Server: [11] Continue sending audio
-    Server->>STTServer: [12] Continue forwarding to STT Server
+    Client->>Broker: [14] Continue publishing audio
+    Broker-->>Server: [15] Deliver more audio to Server
+    Server->>STTServer: [16] Forward more audio to STT Server
+    STTServer-->>Server: [17] Receive final transcript
 
-    STTServer-->>Server: [13] Receive final transcript
-    Server-->>Client: [14] Notify Client that transcription is complete
+    Server->>Broker: [18] Publish message: transcription complete
+    Broker-->>Client: [19] Deliver transcription complete message
+    Client->>User: [20] Optionally display transcript via LED or console
 
-    Client->>User: [15] Optionally display the request via LED or console
+    Note right of Server: [21] Process final transcript
+    Server->>Broker: [22] Optionally publish: processing will take longer
+    Broker-->>Client: [23] Deliver long-processing notification
+    Client->>User: [24] Optionally notify via LED, console, or sound
 
-    Note right of Server: [16] Process final transcript
-    Server-->>Client: [17] Optionally notify Client that processing will take longer
-    Client->>User: [18] Optionally display delay message via LED, console, or sound
+    Server->>Broker: [25] Publish message: text processing complete
+    Broker-->>Client: [26] Deliver text processing result
+    Client->>User: [27] Optionally display the answer via LED, console, or sound
 
-    Server-->>Client: [19] Notify Client that text processing is complete
-    Client->>User: [20] Optionally display the answer via LED, console, or sound
-
-    Note right of Server: [21] Generate TTS file from answer
-    Note right of Server: [22] Create TTS and music links
-
-    Server-->>Client: [23] Send TTS and music links
-    Note right of Client: [24] Playback audio from the provided link
-
-    Client->>User: [25] Output answer via speaker
+    Note right of Server: [28] Generate TTS file and music link
+    Server->>Broker: [29] Publish TTS and music links
+    Broker-->>Client: [30] Deliver message with links to Client
+    Note right of Client: [31] Playback link
+    Client->>User: [32] Sound Announcement via speaker
