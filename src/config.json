@@ -5,6 +5,7 @@
         "local": "0.0.0.0"
     },
     "http_interface": {
+				  
         "secure_port": 443,
         "port": 80
     },
@@ -29,6 +30,7 @@
         "topic_prefix": "loapay",
         "pub_message_topic": "client_msg",
         "pub_audio_topic": "client_audio",
+        "sub_audio_topic": "server_audio",										  
         "sub_message_topic": "server_msg",
         "group": "dev",
         "package_timeout": 2,
