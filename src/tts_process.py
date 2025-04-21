@@ -1,5 +1,5 @@
-import hashlib
-from lib_process import texttospeech, logging, os, asyncio, aiofiles
+
+from lib_process import texttospeech, logging, os, asyncio, aiofiles, hashlib
 
 from global_vars import config
 
@@ -28,33 +28,34 @@ if config["tts"]["mode"] == 'tts_gg_cloud':
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = config["tts"]["credential"]
     logger.debug(f"GCloud credential path: {os.environ['GOOGLE_APPLICATION_CREDENTIALS']}")
 
+
+# Định dạng tên file cache theo mode
+mode_prefix_map = {
+    'tts_gg_free': 'gg_',
+    'tts_edge': 'edge_',
+    'tts_gg_cloud': 'ggloud_'
+}
+
 # Hàm xử lý TTS với cache và nhiều mode
-async def tts_process(text, re_use):
-    file_name = None
-    encrypted_file_name = f"{hashlib.md5(text[:90].encode('utf-8')).hexdigest()}.mp3"
-
-    # Định dạng tên file cache theo mode
-    mode_prefix_map = {
-        'tts_gg_free': 'gg_',
-        'tts_edge': 'edge_',
-        'tts_gg_cloud': 'ggloud_'
-    }
-
+async def tts_process(text,mode,re_use):
     try:
+        encrypted_file_name = f"{hashlib.md5(text[:90].encode('utf-8')).hexdigest()}.mp3"
         prefix = mode_prefix_map.get(config["tts"]["mode"], 'tts_')
         file_name = os.path.join('tts' if re_use else '/tmp', prefix + encrypted_file_name)
 
         # Kiểm tra file đã tồn tại (dùng lại nếu có)
         if os.path.exists(file_name) and os.path.getsize(file_name) > 0:
-            return file_name
+            if mode == 'BYTE':
+                async with aiofiles.open(file_name, "rb") as f:
+                    return await f.read()
+            else:
+                return file_name
 
         # TTS Google Free
         if config["tts"]["mode"] == 'tts_gg_free':
             from gtts import gTTS
             tts = gTTS(text=text, lang='vi')
             await asyncio.to_thread(tts.save, file_name)
-            return file_name
-
         # TTS Edge
         elif config["tts"]["mode"] == 'tts_edge':
             import edge_tts
@@ -65,9 +66,8 @@ async def tts_process(text, re_use):
             VOICE = VOICE_MAP.get(config["tts"]["voice_name"], 'vi-VN-HoaiMyNeural')
             communicate = edge_tts.Communicate(text, VOICE)
             await communicate.save(file_name)
-            return file_name
 
-        # TTS Google Cloud
+        # # TTS Google Cloud
         elif config["tts"]["mode"] == 'tts_gg_cloud':
             VOICE_MAP = {
                 'female_northern_voice': 'vi-VN-Neural2-A',
@@ -88,12 +88,17 @@ async def tts_process(text, re_use):
             response = client.synthesize_speech(
                 input=synthesis_input, voice=voice, audio_config=audio_config
             )
-            async with aiofiles.open(file_name, "wb") as out:
+            async with aiofiles.open(file_name, 'wb') as out:
                 await out.write(response.audio_content)
+        # Trả kết quả
+        if mode == 'BYTE':
+            async with aiofiles.open(file_name, "rb") as f:
+                return await f.read()
+        else:
             return file_name
 
     except Exception as e1:
-        logger.info(f"Lỗi: {str(e1)}")
+        logger.error(f"[TTS ERROR] {str(e1)}")
         return ''
 
 # Debug/Test
@@ -101,7 +106,7 @@ if __name__ == '__main__':
     import asyncio
 
     async def main():
-        print(await tts_process('Việt Nam', True))
-        print(await tts_process('China', False))
+        print(await tts_process('Việt Nam', 'FILE',True))
+        print(await tts_process('China', 'BYTE',False))
 
     asyncio.run(main())
