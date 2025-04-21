@@ -47,11 +47,9 @@ def text_process(data):
                 # answer=skill_process.weather_process('TODAY')
         # except:
             # answer=global_vars.weather_error
-    elif any(item["value"] in data for item in objectt["obj_music"]):               
+    elif any(item["value"] in data for item in objectt["music"]):               
         try:
-            result=skill_process.local_music(data)
-            answer=result[0]                
-            music_link=result[1]                            
+            music_link=skill_process.local_music(data)           
         except:
             answer=skill['music']['error_answer']            
     else:

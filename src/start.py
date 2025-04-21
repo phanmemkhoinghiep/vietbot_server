@@ -1,15 +1,34 @@
 from lib_process import asyncio, ssl  # bỏ global_vars nếu không cần
-from server_process import server_process
-import hypercorn.asyncio
-from hypercorn.config import Config
+from server_process import start_audio_server
+
 from api_process import app
 from global_vars import config  # import đúng chỗ
 
+if config['http_interface']['mode'] =='secure':
+    import hypercorn.asyncio
+    from hypercorn.config import Config
+    async def run_quart_https():
+        hyper_config = Config()
+        hyper_config.bind = [f"0.0.0.0:{config['http_interface']['secure_port']}"]
+        hyper_config.certfile = "/home/admin/.acme.sh/vietbot.vn_ecc/fullchain.cer"
+        hyper_config.keyfile = "/home/admin/.acme.sh/vietbot.vn_ecc/vietbot.vn.key"
+        
+        await hypercorn.asyncio.serve(app, hyper_config)
+
+
 async def main():
-    tasks = [
-        asyncio.create_task(server_process()),
-        asyncio.create_task(run_quart_https())
-    ]
+
+    if config['http_interface']['mode'] =='secure':
+        tasks = [
+            asyncio.create_task(start_audio_server()),
+            asyncio.create_task(run_quart_https())
+        ]
+    else:
+        tasks = [
+            asyncio.create_task(start_audio_server()),
+            asyncio.create_task(app.run_task(host="0.0.0.0", port=config["http_interface"]['port']))  
+        ]
+
     try:
         await asyncio.gather(*tasks)
     except KeyboardInterrupt:
@@ -22,13 +41,6 @@ async def main():
     finally:
         print("Program exited cleanly.")
 
-async def run_quart_https():
-    hyper_config = Config()
-    hyper_config.bind = [f"0.0.0.0:{config['http_interface']['secure_port']}"]
-    hyper_config.certfile = "/home/admin/.acme.sh/vietbot.vn_ecc/fullchain.cer"
-    hyper_config.keyfile = "/home/admin/.acme.sh/vietbot.vn_ecc/vietbot.vn.key"
-    
-    await hypercorn.asyncio.serve(app, hyper_config)
 
 if __name__ == "__main__":
     asyncio.run(main())

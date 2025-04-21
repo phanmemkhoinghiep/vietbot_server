@@ -433,4 +433,4 @@ async def start_audio_server():
         await asyncio.sleep(1)
 
 # Không có if __name__ == "__main__"
-# => để script khác gọi: await server_process.start_audio_server()
+# => để script khác gọi: await server_process.main()
