@@ -30,8 +30,6 @@ seq 4 byte, Audio PCM n byte
 ```sh
 {"state": "tts_result","answer":answer}
 ```
-2.3. Send Audio to Client
-
 #Mode 1: TTS content is splited then send over MQTT
 
 2.2.1. Message announcing client preparation to send Audio
@@ -48,15 +46,15 @@ seq 4 byte, Audio PCM n byte
 ```
 #Mode 2: TTS content send over MQTT
 
-2.2.3. Audio message
+2.2.1. Audio message
 ```sh
 Audio PCM n byte
 ```
 #Mode 3: 
-2.2.5. Json Message
+2.2.1. Json Message
 {"state": "tts_result","tts_link"<tts_link>}
 
-2.3. Message announcing text processing is finished and an answer is available, answer is music link only
+2.2. Message announcing text processing is finished and an answer is available, answer is music link only
 ```sh
 {"state": "music_result","music_link":<music_link>}
 ```
