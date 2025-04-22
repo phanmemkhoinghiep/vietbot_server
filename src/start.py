@@ -1,8 +1,8 @@
-from lib_process import asyncio, ssl  # bỏ global_vars nếu không cần
+from lib_process import asyncio, ssl, config  # bỏ global_vars nếu không cần
 from server_process import start_audio_server
 
 from api_process import app
-from global_vars import config  # import đúng chỗ
+
 
 if config['http_interface']['mode'] =='secure':
     import hypercorn.asyncio

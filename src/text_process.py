@@ -1,10 +1,10 @@
 # !/usr/bin/python
 # -*- coding: utf-8 -*-
 # Processing
-from lib_process import re,random
+from lib_process import re,random, objectt, skill
 import skill_process
 # import hass_process
-from global_vars import objectt, skill
+
 
     
 def text_process(data):

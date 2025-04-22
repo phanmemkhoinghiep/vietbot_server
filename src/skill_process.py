@@ -1,12 +1,10 @@
 # !/usr/bin/python
 # -*- coding: utf-8 -*-
 #Processing
-from lib_process import requests,fuzz,datetime,math,fuzz,random,re, os, logging
+from lib_process import requests,fuzz,datetime,math,fuzz,random,re, os, logging, config, skill, objectt, action
 
 weather_session = requests.Session()
 music_cache = {}
-
-from global_vars import config, skill, objectt, action
 
 import google.generativeai as genai
 genai.configure(api_key=skill["gemini"]["api"])

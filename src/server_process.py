@@ -1,47 +1,145 @@
-from lib_process import asyncio, websockets, json, threading, os, global_vars, time
-import logging
-import ssl
+from collections import defaultdict
+from lib_process import asyncio, json, threading, os, time, logging, struct, config
+
+
+
 from six.moves import queue
 from google.cloud import speech
-from link_process import link_process
 
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = 'google_tts.json'
+if config["stt"]["mode"] == 'stt_gg_cloud':
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = config["stt"]["credential"]
 
-#Cau hinh SSL
-ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-ssl_context.load_cert_chain(
-    certfile='/home/admin/.acme.sh/vietbot.vn_ecc/fullchain.cer',
-    keyfile='/home/admin/.acme.sh/vietbot.vn_ecc/vietbot.vn.key'
-)
+from asyncio import Queue
+from paho.mqtt.client import Client as MQTTClient, CallbackAPIVersion
 
-# Cấu hình logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
-# Lưu trữ client đang hoạt động
-active_clients = {}
-
-# Giới hạn số lượng xử lý STT đồng thời
-semaphore = asyncio.Semaphore(5)
+from text_process import text_process
+from tts_process import tts_process
 
 
-class Transcoder(object):
-    """
-    Converts audio chunks to text using Google Cloud Speech-to-Text streaming.
-    """
-    def __init__(self, encoding, rate, language_code):
-        from six.moves import queue
+
+
+
+if config["logging_type"] =='INFO':
+    logging.basicConfig(level=logging.INFO) 
+else:
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler("server_debug.log", encoding='utf-8', mode='a')
+        ]
+    )       
+
+logger = logging.getLogger("AudioServer")
+#Thông tin Broker
+MQTT_HOST = config['broker']['host']
+MQTT_PORT = config['broker']['port']
+MQTT_USER = config['broker']['username']
+MQTT_PASS = config['broker']['password']
+#Thông tin Client
+CLIENT_TOPIC_PREFIX  = config['client']['topic_prefix']
+CLIENT_GROUP  = config['client']['group'] 
+CLIENT_PUB_MESSAGE_TOPIC=config['client']['pub_message_topic'] 
+CLIENT_PUB_AUDIO_TOPIC=config['client']['pub_audio_topic'] 
+CLIENT_SUB_AUDIO_TOPIC=config['client']['sub_audio_topic'] 
+CLIENT_SUB_MESSAGE_TOPIC=config['client']['sub_message_topic'] 
+
+
+event_loop = None  # sẽ gán khi khởi động
+
+transcoders = {}
+
+def on_connect(client, userdata, flags, rc, properties=None):
+    logger.info("Connected to MQTT Broker with result code %s", rc)
+    client.subscribe(f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/+/{CLIENT_PUB_MESSAGE_TOPIC}",qos=1)
+    client.subscribe(f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/+/{CLIENT_PUB_AUDIO_TOPIC}",qos=2)
+
+
+# Khai báo dictionary lưu số lượng gói theo hw_id
+packet_counter = defaultdict(int)  # from collections import defaultdict
+
+def on_message(client, userdata, msg):
+    topic = msg.topic
+    hw_id = topic.split("/")[2]
+
+    if topic.endswith(f"/{CLIENT_PUB_AUDIO_TOPIC}"):
+        packet_counter[hw_id] += 1  # tăng số lượng gói
+        logger.info(f"[{hw_id}] Received audio packet #{packet_counter[hw_id]}")
+        asyncio.run_coroutine_threadsafe(client_queues[hw_id]["audio"].put(msg.payload), event_loop)
+
+    elif topic.endswith(f"/{CLIENT_PUB_MESSAGE_TOPIC}"):
+        payload = msg.payload.decode()
+        logger.info(f"{CLIENT_PUB_MESSAGE_TOPIC} {hw_id}: {payload}")
+
+        try:
+            state_data = json.loads(payload)
+            if state_data.get("state") == "start_send":
+                if state_data.get("tts_mode"):
+                    config['client']['tts_sending_mode'] = state_data.get("tts_mode")
+                logger.info(f"[{hw_id}] Received start_send")
+                # Reset packet count when a new stream starts
+                packet_counter[hw_id] = 0
+                asyncio.run_coroutine_threadsafe(
+                    client_queues[hw_id]["audio"].put(payload.encode()), event_loop
+                )
+            # elif state_data.get("state") == "finish_send":
+                # logger.info(f"[{hw_id}] Received finish_send")
+                # time.sleep(0.5)  # <-- thêm dòng này
+                # if hw_id in transcoders:
+                    # transcoders[hw_id].finish()
+
+        except Exception as e:
+            logger.warning(f"[{hw_id}] Invalid state payload or not JSON: {e}")
+        except asyncio.CancelledError:
+            logger.warning(f"[{hw_id}] Cancel")
+            # Dọn dẹp tài nguyên ở đây (nếu cần)
+
+           
+#Khai báo MQTT
+
+mqtt_client = MQTTClient(callback_api_version=CallbackAPIVersion.VERSION2)
+mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
+mqtt_client.on_connect = on_connect
+mqtt_client.on_message = on_message
+mqtt_client.connect(MQTT_HOST, MQTT_PORT, 60)
+mqtt_client.loop_start()
+logger.info("MQTT client initialized and loop started")
+
+
+
+async def delete_old_files(directory, max_age_days):
+    now = time.time()
+    cutoff = now - max_age_days * 86400
+    for filename in os.listdir(directory):
+        file_path = os.path.join(directory, filename)
+        if os.path.isfile(file_path):
+            if os.path.getmtime(file_path) < cutoff:
+                logger.info(f"Deleting old file: {file_path}")
+                os.remove(file_path)
+
+class Transcoder:
+    def __init__(self, encoding, hw_id, chunk_size, loop):
         self.buff = queue.Queue()
         self.encoding = encoding
-        self.language_code = language_code
-        self.rate = rate
-        self.closed = True
-        self.transcript = None
-
-    def start(self):
+        self.language_code = config['stt']['lang']
+        self.rate = config['stt']['rate']
+        self.chunk_size = chunk_size
         self.closed = False
-        threading.Thread(target=self.process, daemon=True).start()
+        self.transcript = None
+        self.hw_id = hw_id
+        self.loop = loop
+        self.should_stop = False  # <- THÊM BIẾN DỪNG
+        self.thread = threading.Thread(target=self.process, daemon=True)
+        self.thread.start()
 
-    def response_loop(self, responses):
+    def finish(self):
+        """Gọi khi muốn dừng nhận audio từ bên ngoài (ví dụ: từ on_message)"""
+        self.should_stop = True
+        self.closed = True
+        logger.info(f"[{self.hw_id}] Transcoder finish() called")
+
+    async def async_response_loop(self, responses):
         for response in responses:
             if not response.results:
                 continue
@@ -51,10 +149,19 @@ class Transcoder(object):
             transcript = result.alternatives[0].transcript
             if result.is_final:
                 self.transcript = transcript
-                break  # Đã xong 1 câu, dừng loop luôn
+                await client_queues[self.hw_id]["request"].put(transcript)
+                logger.info(f"[{self.hw_id}] Final transcript: {transcript}")
+
+                mqtt_client.publish(
+                    f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/{self.hw_id}/{CLIENT_SUB_MESSAGE_TOPIC}",
+                    json.dumps({"state": "finish_transcoding", "request": transcript}),
+                    qos=0
+                )
+
+                self.finish()  # <- DỪNG NHẬN AUDIO KHI CÓ is_final
+                break
 
     def process(self):
-        from google.cloud import speech
         client = speech.SpeechClient()
         config = speech.RecognitionConfig(
             encoding=self.encoding,
@@ -64,7 +171,7 @@ class Transcoder(object):
         streaming_config = speech.StreamingRecognitionConfig(
             config=config,
             single_utterance=True,
-            interim_results=True
+            interim_results=False
         )
 
         try:
@@ -73,179 +180,277 @@ class Transcoder(object):
                 for chunk in self.stream_generator()
             )
             responses = client.streaming_recognize(streaming_config, requests)
-            self.response_loop(responses)
+            future = asyncio.run_coroutine_threadsafe(
+                asyncio.wait_for(self.async_response_loop(responses), timeout=15),
+                self.loop
+            )
+            future.result()
+        except asyncio.TimeoutError:
+            logger.warning(f"[{self.hw_id}] STT response timed out.")
+            mqtt_client.publish(
+                f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/{self.hw_id}/{CLIENT_SUB_MESSAGE_TOPIC}",
+                json.dumps({"state": f"[{self.hw_id}] STT response timed out."}),
+                qos=0
+            )
         except Exception as e:
-            print("Google STT Error:", e)
+            logger.error(f"[{self.hw_id}] Google STT Error with chunk: {self.chunk_size} : {e}")
+            mqtt_client.publish(
+                f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/{self.hw_id}/{CLIENT_SUB_MESSAGE_TOPIC}",
+                json.dumps({"state": f"[{self.hw_id}] Google STT Error: {e}"}),
+                qos=0
+            )
+        except asyncio.CancelledError:
+            logger.warning(f"[{self.hw_id}] Cancelled")
         finally:
             self.closed = True
 
     def stream_generator(self):
-        """
-        Generator that yields audio chunks in real time to Google STT
-        """
+        bytes_per_second = self.rate * 2  # 16-bit PCM = 2 bytes/sample
+        expected_interval = self.chunk_size / bytes_per_second
+
         while not self.closed:
+            if self.should_stop:  # <- DỪNG KHI FLAG ĐƯỢC KÍCH HOẠT
+                logger.info(f"[{self.hw_id}] stream_generator stopped by flag")
+                return
             try:
-                chunk = self.buff.get(timeout=1.0)  # Chờ tối đa 1 giây
+                chunk = self.buff.get(timeout=1.0)
                 if chunk is None:
                     return
-                yield chunk  # Gửi từng chunk ngay khi nhận
+                yield chunk
+                # time.sleep(expected_interval)
             except queue.Empty:
-                continue  # Không có chunk mới, tiếp tục chờ
+                continue
+            except Exception as e:
+                logger.error(f"[{self.hw_id}] Unexpected error in stream_generator: {e}")
+            except asyncio.CancelledError:
+                logger.warning(f"[{self.hw_id}] Cancelled")
 
     def write(self, data):
         self.buff.put(data)
 
 
+client_queues = defaultdict(lambda: {
+    "audio": Queue(),
+    "request": Queue(),
+    "answer": Queue(),              # ✅ ADD
+    "music_file": Queue()           # ✅ ADD (thay vì 'music_link')
+})
 
 
-async def handle_short_tts(websocket):
-    await websocket.send(json.dumps({"state": "listening"}))
 
-    transcoder = Transcoder(
-        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-        rate=global_vars.DEFAULT_AUDIO_SAMPLE_RATE,
-        language_code=global_vars.LANG_CODE
-    )
-    transcoder.start()
+async def receiver_worker(hw_id):
+    buffer = {}
+    expected_seq = 0
+    seq_wait_start = None
+    last_active = time.time()
 
-    try:
-        while True:
+    while True:
+        try:
+            if time.time() - last_active > config['client']['session_timeout']:
+                logger.info(f"[{hw_id}] Session timeout. Force cleanup.")
+                if hw_id in transcoders:
+                    transcoders[hw_id].closed = True
+                    del transcoders[hw_id]
+                buffer.clear()
+                expected_seq = 0
+                seq_wait_start = None
+                last_active = time.time()
+                continue
+
+            payload = await client_queues[hw_id]["audio"].get()
+            last_active = time.time()
+
+            # ✅ Nếu là message JSON khởi tạo transcoder
             try:
-                data = await websocket.recv()
-                if not data:
-                    break  # Client đã ngắt
-            except websockets.ConnectionClosed:
-                logging.info("🔌 WebSocket connection closed")
-                break
-
-            # Nếu là gói kết thúc từ client
-            if data == b'\x00':
-                logging.info("📩 Nhận được tín hiệu kết thúc ghi âm từ client.")
-                transcoder.buff.put(None)
-                break
-
-            transcoder.write(data)
-
-            # Nếu đã có kết quả STT, phản hồi luôn
-            if transcoder.transcript:
-                logging.info(f"🗣 Transcription: {transcoder.transcript}")
-                answer, tts_link, music_link = await link_process(transcoder.transcript)
-
-                response_data = {
-                    "request": transcoder.transcript,
-                    "answer": answer,
-                    "tts_link": tts_link,
-                    "music_link": music_link
-                }
-
-                transcoder.transcript = None
-                await websocket.send(json.dumps(response_data))
-                # Vẫn gửi None để đảm bảo đóng stream trong mọi tình huống
-                transcoder.buff.put(None)
-                break
-    finally:
-        transcoder.closed = True
-        transcoder.buff.put(None)
-
-
-
-async def handle_connection(websocket):
-    hw_id = None
-    try:
-        raw = await websocket.recv()
-        data = json.loads(raw)
-        hw_id = data.get("hw_id")
-        msg_type = data.get("type")
-
-        if not hw_id or msg_type not in ("reconnect", "connect"):
-            raise ValueError("Invalid handshake message")
-
-        if hw_id in global_vars.SHORT_AUTHORIZED_HW_IDS:
-            client_type = "short"
-            await websocket.send(json.dumps({"state": "ID in Short whitelist, Authorized"}))
-        else:
-            await websocket.send(json.dumps({"error": "Unauthorized"}))
-            await websocket.close()
-            return
-
-        active_clients[hw_id] = {"websocket": websocket, "type": client_type}
-        logging.info(f"✅ Client {hw_id} authorized ({client_type})")
-
-        # Giai đoạn tiếp theo: chờ lệnh "command" để bắt đầu STT
-        max_commands = 100  # optional: tránh spam command liên tục
-        commands_received = 0
-
-        while commands_received < max_commands:
-            raw = await websocket.recv()
-            # Nếu là bytes
-            if isinstance(raw, bytes):
-                if raw == b'\x00':
-                    logging.info("📩 Nhận được chuỗi rỗng từ Client, bỏ qua")
+                msg = json.loads(payload.decode())
+                if msg.get("state") == "start_send" and "package_size" in msg:
+                    package_size = msg["package_size"]
+                    logger.info(f"[{hw_id}] Initializing new Transcoder with chunk_size={package_size}")
+                    mqtt_client.publish(
+                        f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/{hw_id}/{CLIENT_SUB_MESSAGE_TOPIC}",
+                        json.dumps({"state": f"[{hw_id}] Initializing new Transcoder with chunk_size={package_size}"}),
+                        qos=0
+                    )
+                    if hw_id in transcoders:
+                        if not transcoders[hw_id].closed:
+                            logger.warning(f"[{hw_id}] Previous transcoder still running.")
+                            # ✅ Cập nhật hw_id này vào danh sách hw_id đang transcoding
+                            continue
+                        else:
+                            del transcoders[hw_id]
+                    transcoder = Transcoder(
+                        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                        hw_id=hw_id,
+                        chunk_size=package_size,  # ✅ dùng kích thước do client gửi
+                        loop=event_loop
+                    )
+                    transcoders[hw_id] = transcoder
+                    expected_seq = 0
+                    seq_wait_start = None
+                    buffer.clear()
                     continue
+            except Exception:
+                pass  # Không phải JSON khởi tạo, tiếp tục xử lý gói audio
+            if hw_id not in transcoders:
+                logger.warning(f"[{hw_id}] Received audio but have no hardware_id.")
+                continue
+            if len(payload) < 4:
+                logger.warning(f"[{hw_id}] Payload too short")
+                continue
+            seq = int.from_bytes(payload[:4], byteorder="big")
+            audio_data = payload[4:]
+            buffer[seq] = audio_data
+            logger.info(f"[{hw_id}] Received seq={seq}")
+            if seq_wait_start is None:
+                seq_wait_start = time.time()
+            while expected_seq in buffer:
+                transcoders[hw_id].write(buffer[expected_seq])
+                del buffer[expected_seq]
+                expected_seq += 1
+                seq_wait_start = time.time()
+            if seq_wait_start and (time.time() - seq_wait_start > config['client']['package_timeout']):
+                logger.warning(f"[{hw_id}] Timeout waiting for seq={expected_seq}. Skipping.")
+                expected_seq += 1
+                seq_wait_start = time.time()
+            transcoder = transcoders.get(hw_id)
+            if transcoder and transcoder.closed:
+                logger.info(f"[{hw_id}] Cleaning up closed transcoder.")
+                del transcoders[hw_id]
+        except Exception as e:
+            logger.exception(f"[{hw_id}] Unexpected error in receiver_worker")
+            mqtt_client.publish(
+                f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/{hw_id}/{CLIENT_SUB_MESSAGE_TOPIC}",
+                json.dumps({"state": "error_audio_payload_process"}),
+                qos=0
+            )
+            await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            logger.warning(f"[{hw_id}] Cancel")
+            # Dọn dẹp tài nguyên ở đây (nếu cần)  
+async def text_worker(hw_id):
+    while True:
+        transcript = await client_queues[hw_id]["request"].get()
+        try:
+            logger.info(f"[{hw_id}] Processing transcript")            
+            answer, music_file = await asyncio.to_thread(text_process, transcript)
+            if answer != '' and music_file == '': # ✅ Chỉ có trả lời dạng text
+                await client_queues[hw_id]["answer"].put(answer)
+                mqtt_client.publish(
+                    f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/{hw_id}/{CLIENT_SUB_MESSAGE_TOPIC}",
+                    json.dumps({"state": "tts_result","answer":answer})
+                    ,qos=0
+                )       
+            elif answer =='' and music_file !='': # ✅ Chỉ có trả lời dạng music file
+                if config['http_interface']['mode'] =='secure':
+                    music_link = f"https://{config['address']['public']}:{config['http_interface']['secure_port']}/{music_file}"
                 else:
-                    logging.warning("⚠️ Nhận được bytes không hợp lệ, bỏ qua")
-                    continue  # hoặc dùng: break / websocket.close() nếu nghi ngờ tấn công
+                    music_link = f"http://{config['address']['public']}:{config['http_interface']['port']}/{music_file}"                    
+                mqtt_client.publish(
+                    f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/{hw_id}/{CLIENT_SUB_MESSAGE_TOPIC}",
+                    json.dumps({"state": "music_result","music_link":music_link})
+                    ,qos=0
+                )               
+            # Trường hợp 3 (hiếm): Cả hai đều rỗng
+            elif answer == '' and music_file == '':
+                logger.warning(f"[{hw_id}] Empty result from text_process")
+        except Exception as e:
+            logger.error(f"[{hw_id}] Text processing error: {e}")
+            mqtt_client.publish(
+                f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/{hw_id}/{CLIENT_SUB_MESSAGE_TOPIC}",
+                json.dumps({"state": "error_text_process"})
+                ,qos=0
+            )
+        except asyncio.CancelledError:
+            logger.warning(f"[{hw_id}] Cancel")
+            # Dọn dẹp tài nguyên ở đây (nếu cần)  
 
-            # Nếu là text
-            try:
-                data = json.loads(raw)
-                if data.get("type") == "command":
-                    commands_received += 1
-                    await handle_short_tts(websocket)
-            except json.JSONDecodeError:
-                logging.warning("⚠️ Dữ liệu JSON không hợp lệ, bỏ qua")
-                await websocket.send(json.dumps({"error": "Invalid JSON"}))
+def chunk_pcm_audio(pcm_data: bytes, sample_rate=16000, chunk_duration=0.5) -> list[bytes]:
+    """Chia dữ liệu PCM thành các chunk có độ dài chunk_duration (giây)"""
+    chunk_size = int(sample_rate * 2 * chunk_duration)  # 2 bytes/sample, mono
+    return [pcm_data[i:i+chunk_size] for i in range(0, len(pcm_data), chunk_size)]
 
-        else:
-            await websocket.send(json.dumps({"error": "Overquota, please connect/reconnect"}))
-            pass
+async def send_audio_chunks(hw_id, audio_bytes):
+    """Gửi các chunk âm thanh PCM trực tiếp đến client và phát bằng player"""
+    chunks = chunk_pcm_audio(audio_bytes)
+    total_seq = len(chunks)
 
-    except websockets.exceptions.ConnectionClosedError as e:
-        logging.warning(f"🔌 Client closed unexpectedly: {e}")
-    except websockets.exceptions.ConnectionClosedOK as e:
-        logging.info(f"👋 Client closed cleanly: {e}")
-    except Exception as e:
-        logging.error(f"❌ Error with client {hw_id}: {e}")
+    # Gửi thông báo bắt đầu gửi kèm số lượng chunk
+    total_payload = json.dumps({
+        "state": "start_send",
+        "total_seq": total_seq
+    })
+    mqtt_client.publish(f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/{hw_id}/CLIENT_SUB_MESSAGE_TOPIC", total_payload,qos=2)
+
+    # Gửi từng chunk PCM
+    for seq, pcm_chunk in enumerate(chunks):
+        mqtt_client.publish(
+            f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/{hw_id}/CLIENT_SUB_AUDIO_TOPIC",
+            struct.pack(">I", seq) + pcm_chunk
+                ,qos=0  # QoS 1: at least once
+                )               
+
+    # Gửi thông báo kết thúc
+    mmqtt_client.publish(f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/{hw_id}/CLIENT_SUB_MESSAGE_TOPIC",
+        json.dumps({"state": "finish_send"})
+                ,qos=0  # QoS 1: at least once
+                )               
+    await asyncio.sleep(0)  # Cho coroutine khác cơ hội chạy
+
+  
+
+async def tts_worker(hw_id):
+    while True:
         try:
-            await websocket.send(json.dumps({"error": "Internal server error"}))
-        except:
-            pass
-    finally:
-        try:
-            await websocket.close()
-        except:
-            pass
-        if hw_id:
-            active_clients.pop(hw_id, None)
+            answer = await client_queues[hw_id]["answer"].get()        
+            logger.info(f"[{hw_id}] Get answer from queue: {answer}")
+            # Xử lý TTS
+            logger.info(f"[{hw_id}] Processing TTS: {answer}")
+            if config['client']['tts_sending_mode'] ==1:
+                tts_audio = await tts_process(answer,'BYTE',False)
+                await send_audio_chunks(hw_id, tts_audio) # Gọi hàm chia nhỏ TTS và gửi lần lượt
+            elif config['client']['tts_sending_mode'] ==2:
+                tts_audio = await tts_process(answer,'BYTE',False)
+                # Gửi toàn bộ âm thanh TTS lên MQTT        
+                mqtt_client.publish(
+                    f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/{hw_id}/{CLIENT_SUB_AUDIO_TOPIC}",
+                    tts_audio
+                    ,qos=0
+                )        
+                logger.info(f"[{hw_id}] Published TTS audio.")
+            elif config['client']['tts_sending_mode'] ==3:
+                tts_file = await tts_process(answer,'FILE',True)
+                logger.info(f"[{hw_id}] Public final message...")
+                if config['http_interface']['mode'] =='secure':
+                    tts_link = f"https://{config['address']['public']}:{config['http_interface']['secure_port']}/{tts_file}"
+                else:
+                     tts_link = f"http://{config['address']['public']}:{config['http_interface']['port']}/{tts_file}"                   
+        except Exception as e:
+            logger.error(f"[{hw_id}] Error processing tts: {e}")  # ✅ FIXED: dùng đúng biến
+            mqtt_client.publish(
+                f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/{hw_id}/{CLIENT_SUB_MESSAGE_TOPIC}",
+                json.dumps({"state": "error_tts_process"})
+                ,qos=0
+            )
+        except asyncio.CancelledError:
+            logger.warning(f"[{hw_id}] Cancel")
+            # Dọn dẹp tài nguyên ở đây (nếu cần)  
+        await asyncio.sleep(0)
 
+# server_process.py
 
+async def start_audio_server():
+    active_hw_ids = set()
+    global event_loop
+    event_loop = asyncio.get_running_loop()
+    while True:
+        for hw_id in list(client_queues.keys()):
+            if hw_id not in active_hw_ids:
+                logger.info(f"[{hw_id}] Starting new client with hardware_id: {hw_id}")
+                asyncio.create_task(receiver_worker(hw_id))
+                asyncio.create_task(text_worker(hw_id))
+                asyncio.create_task(tts_worker(hw_id))
+                active_hw_ids.add(hw_id)
+        await asyncio.sleep(1)
 
-async def server_process():
-    logging.info(f"🚀 Starting WebSocket server at ws://{global_vars.ip_address}:{global_vars.socket_port}")
-    logging.info(f"🚀 Starting Secure WebSocket server at wss://{global_vars.ip_address}:{global_vars.socket_secure_port}")
-
-    # Tạo 2 server: ws và wss
-    ws_server = websockets.serve(
-        handle_connection,
-        global_vars.ip_address,
-        global_vars.socket_port,  # Ví dụ: 21199
-        ping_interval=30,
-        ping_timeout=10,
-        close_timeout=5
-    )
-
-    wss_server = websockets.serve(
-        handle_connection,
-        global_vars.ip_address,
-        global_vars.socket_secure_port,  # Ví dụ: 443 hoặc 21200
-        ssl=ssl_context,
-        ping_interval=30,
-        ping_timeout=10,
-        close_timeout=5
-    )
-
-    # Chạy cả hai song song
-    await asyncio.gather(ws_server, wss_server)
-
-if __name__ == "__main__":
-    asyncio.run(server_process())
+# Không có if __name__ == "__main__"
+# => để script khác gọi: await server_process.main()

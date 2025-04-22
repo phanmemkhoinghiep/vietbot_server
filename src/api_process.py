@@ -1,18 +1,17 @@
 from quart import Quart, request, jsonify, send_from_directory, render_template
 from werkzeug.utils import secure_filename
-from lib_process import asyncio, json, os, ssl, uuid
+from lib_process import asyncio, json, os, ssl, uuid, config
 from tts_process import tts_process
-from global_vars import config
 
 
-if config['http_interface']['mode'] =='secure':
-    # Cau hinh SSL
-    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ssl_context.load_cert_chain(
-        certfile='/home/admin/.acme.sh/vietbot.vn_ecc/fullchain.cer',
-        keyfile='/home/admin/.acme.sh/vietbot.vn_ecc/vietbot.vn.key'
-    )
-    
+
+# Cau hinh SSL
+ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+ssl_context.load_cert_chain(
+    certfile='/home/admin/.acme.sh/vietbot.vn_ecc/fullchain.cer',
+    keyfile='/home/admin/.acme.sh/vietbot.vn_ecc/vietbot.vn.key'
+)
+
 app = Quart(__name__, template_folder='templates')
 
 # Cấu hình thư mục upload cho file mp3

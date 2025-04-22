@@ -1,7 +1,7 @@
 
-from lib_process import texttospeech, logging, os, asyncio, aiofiles, hashlib
+from lib_process import texttospeech, logging, os, asyncio, aiofiles, hashlib, config
 
-from global_vars import config
+
 
 # Cấu hình logging
 if config["logging_type"] == 'INFO':

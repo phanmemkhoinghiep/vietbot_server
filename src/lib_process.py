@@ -96,17 +96,27 @@ from urllib.parse import quote
 requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
 # import paho.mqtt.client as mqtt
 import websockets
-# import zeroconf
-# import google.generativeai as genai
-# from openai import OpenAI
-# Bây giờ bạn có thể sử dụng thư viện websocket như thông thường
-# Ví dụ: import websockets và sử dụng nó trong chương trình của bạn
 
-#Import local file
-# bits = struct.calcsize('P') * 8
-# use_azure=False
-# if bits == 64:
-    # import azure.cognitiveservices.speech as speechsdk    
-    # use_azure=True
-#Import Vietbot Lib
+# Đường dẫn các file cấu hình
+CONFIG_FILE = "config.json"
+SKILL_FILE = "skill.json"
+ACTION_FILE = "action.json"
+OBJECT_FILE = "object.json"
+ADVERB_FILE = "adverb.json"
 
+# Hàm load dữ liệu từ file JSON
+def load_config(file_path):
+    with open(file_path, "r") as f:
+        return json.load(f)
+
+# Hàm lưu dữ liệu vào file JSON
+async def save_config():
+    async with aiofiles.open("config.json", "w", encoding="utf-8") as f:
+        await f.write(json.dumps(config, indent=2, ensure_ascii=False))
+
+# Các biến toàn cục dùng cho toàn hệ thống
+config = load_config(CONFIG_FILE)
+skill = load_config(SKILL_FILE)
+action = load_config(ACTION_FILE)
+objectt = load_config(OBJECT_FILE)
+adverb = load_config(ADVERB_FILE)
