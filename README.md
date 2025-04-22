@@ -21,6 +21,7 @@ seq 4 byte, Audio PCM n byte
 {"state":"finish_send"}
 ```
 2. Server sends to Client
+   
 2.1. Message indicating STT final result is available
 ```sh
 {"state": "finish_transcoding","request":<transcript>}
