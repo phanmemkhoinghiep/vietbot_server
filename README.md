@@ -3,31 +3,62 @@
 # This is the list of message from Client& Server:
 1. Client sends to Server
    
-1.1. Message announcing preparation to send Audio
+1.1. Message announcing client preparation to send Audio
 ```sh
-{"state":"start_send", "package_size": <size_of_package>}
+{"state":"start_send", "package_size": <size_of_package>,"tts_mode":<tts_mode>}
+```
+```sh
+"Mode 1: TTS content is splited then send over MQTT
+Mode 2: Whole TTS content is send over MQTT
+Mode 3: Send directly to TTS file
 ```
 1.2. Audio message
 ```sh
-seq (4 byte, Audio PCM n byte)
+seq 4 byte, Audio PCM n byte
+```
+1.3. Finish sending
+```sh
+{"state":"finish_send",}
 ```
 2. Server sends to Client
 2.1. Message indicating STT final result is available
 ```sh
 {"state": "finish_transcoding","request":<transcript>}
 ```
-2.2. Message announcing waiting for text processing
+2.2. Message announcing text processing is finished and an answer is available, answer is tts only
 ```sh
-{"state": "wait_text_processing"}
+{"state": "tts_result","answer":answer}
 ```
-2.3. Message announcing text processing is finished and an answer is available
+2.3. Send Audio to Client
+#Mode 1: TTS content is splited then send over MQTT
+2.2.1. 
+Message announcing client preparation to send Audio
 ```sh
-{"state": "finish_text_process","answer":<answer>}
+{"state": "start_send","package_number":<package_number>}
 ```
-2.4. Message announcing TTS processing is finished, with corresponding TTS and music links
+2.2.2. Audio message
 ```sh
-{"answer":<answer>,"answer_link":<answer_link>,"music_link":<music_link>}
+seq 4 byte, Audio PCM n byte
 ```
+2.2.3. Finish sending
+```sh
+{"state":"finish_send",}
+```
+#Mode 2: TTS content send over MQTT
+
+2.2.3. Audio message
+```sh
+Audio PCM n byte
+```
+#Mode 3: 
+2.2.5. Json Message
+{"state": "tts_result","tts_link"<tts_link>}
+
+2.3. Message announcing text processing is finished and an answer is available, answer is music link only
+```sh
+{"state": "music_result","music_link":<music_link>}
+```
+
 # This is the diagram
 
 ```mermaid
@@ -41,7 +72,6 @@ sequenceDiagram
     participant Broker
     participant Server
     participant STTServer as STT Server
-
     User->>Client: [1] Wake up Client
     Client->>User: [2] Indicate readiness via LED, LCD, or sound
 
