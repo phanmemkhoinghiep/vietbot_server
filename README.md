@@ -18,7 +18,7 @@ seq 4 byte, Audio PCM n byte
 ```
 1.3. Finish sending
 ```sh
-{"state":"finish_send",}
+{"state":"finish_send"}
 ```
 2. Server sends to Client
 2.1. Message indicating STT final result is available
