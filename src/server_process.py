@@ -48,6 +48,7 @@ CLIENT_SUB_MESSAGE_TOPIC=config['client']['sub_message_topic']
 
 event_loop = None  # sẽ gán khi khởi động
 
+transcoders = {}
 
 def on_connect(client, userdata, flags, rc, properties=None):
     logger.info("Connected to MQTT Broker with result code %s", rc)
@@ -55,12 +56,16 @@ def on_connect(client, userdata, flags, rc, properties=None):
     client.subscribe(f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/+/{CLIENT_PUB_AUDIO_TOPIC}")
 
 
+# Khai báo dictionary lưu số lượng gói theo hw_id
+packet_counter = defaultdict(int)  # from collections import defaultdict
+
 def on_message(client, userdata, msg):
     topic = msg.topic
     hw_id = topic.split("/")[2]
 
-
     if topic.endswith(f"/{CLIENT_PUB_AUDIO_TOPIC}"):
+        packet_counter[hw_id] += 1  # tăng số lượng gói
+        logger.info(f"[{hw_id}] Received audio packet #{packet_counter[hw_id]}")
         asyncio.run_coroutine_threadsafe(client_queues[hw_id]["audio"].put(msg.payload), event_loop)
 
     elif topic.endswith(f"/{CLIENT_PUB_MESSAGE_TOPIC}"):
@@ -69,17 +74,25 @@ def on_message(client, userdata, msg):
 
         try:
             state_data = json.loads(payload)
-            if state_data.get("state") == "start_send":          
+            if state_data.get("state") == "start_send":
+                if state_data.get("tts_mode"):
+                    config['client']['tts_sending_mode'] = state_data.get("tts_mode")
+                logger.info(f"[{hw_id}] Received start_send")
+                # Reset packet count when a new stream starts
+                packet_counter[hw_id] = 0
                 asyncio.run_coroutine_threadsafe(
                     client_queues[hw_id]["audio"].put(payload.encode()), event_loop
                 )
-                logger.info(f"[{hw_id}] Received start_send")
+            elif state_data.get("state") == "finish_send":
+                logger.info(f"[{hw_id}] Received finish_send")
+                if hw_id in transcoders:
+                    transcoders[hw_id].finish()
+
         except Exception as e:
             logger.warning(f"[{hw_id}] Invalid state payload or not JSON: {e}")
         except asyncio.CancelledError:
             logger.warning(f"[{hw_id}] Cancel")
-            # Dọn dẹp tài nguyên ở đây (nếu cần)            
-
+            # Dọn dẹp tài nguyên ở đây (nếu cần)
 
            
 #Khai báo MQTT
@@ -105,7 +118,7 @@ async def delete_old_files(directory, max_age_days):
                 os.remove(file_path)
 
 class Transcoder:
-    def __init__(self, encoding, hw_id, chunk_size,loop):
+    def __init__(self, encoding, hw_id, chunk_size, loop):
         self.buff = queue.Queue()
         self.encoding = encoding
         self.language_code = config['stt']['lang']
@@ -114,9 +127,16 @@ class Transcoder:
         self.closed = False
         self.transcript = None
         self.hw_id = hw_id
-        self.loop = loop  # <- lưu lại
+        self.loop = loop
+        self.should_stop = False  # <- THÊM BIẾN DỪNG
         self.thread = threading.Thread(target=self.process, daemon=True)
         self.thread.start()
+
+    def finish(self):
+        """Gọi khi muốn dừng nhận audio từ bên ngoài (ví dụ: từ on_message)"""
+        self.should_stop = True
+        self.closed = True
+        logger.info(f"[{self.hw_id}] Transcoder finish() called")
 
     async def async_response_loop(self, responses):
         for response in responses:
@@ -128,13 +148,16 @@ class Transcoder:
             transcript = result.alternatives[0].transcript
             if result.is_final:
                 self.transcript = transcript
-                await client_queues[self.hw_id]["request"].put(transcript)                                                                         
+                await client_queues[self.hw_id]["request"].put(transcript)
                 logger.info(f"[{self.hw_id}] Final transcript: {transcript}")
+
                 mqtt_client.publish(
                     f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/{self.hw_id}/{CLIENT_SUB_MESSAGE_TOPIC}",
-                    json.dumps({"state": "finish_transcoding","request":transcript})
-                ,qos=0
-                )                
+                    json.dumps({"state": "finish_transcoding", "request": transcript}),
+                    qos=0
+                )
+
+                self.finish()  # <- DỪNG NHẬN AUDIO KHI CÓ is_final
                 break
 
     def process(self):
@@ -165,28 +188,29 @@ class Transcoder:
             logger.warning(f"[{self.hw_id}] STT response timed out.")
             mqtt_client.publish(
                 f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/{self.hw_id}/{CLIENT_SUB_MESSAGE_TOPIC}",
-                json.dumps({"state": f"[{self.hw_id}] STT response timed out."})
-                ,qos=0
-                )               
+                json.dumps({"state": f"[{self.hw_id}] STT response timed out."}),
+                qos=0
+            )
         except Exception as e:
-            logger.error(f"[{self.hw_id}] Google STT Error: {e}")
+            logger.error(f"[{self.hw_id}] Google STT Error with chunk: {self.chunk_size} : {e}")
             mqtt_client.publish(
                 f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/{self.hw_id}/{CLIENT_SUB_MESSAGE_TOPIC}",
-                json.dumps({"state": f"[{self.hw_id}] Google STT Error: {e}"})
-                ,qos=0
-                )               
-            self.closed = True
+                json.dumps({"state": f"[{self.hw_id}] Google STT Error: {e}"}),
+                qos=0
+            )
         except asyncio.CancelledError:
-            logger.warning(f"[{self.hw_id}] Cancel")
-            # Dọn dẹp tài nguyên ở đây (nếu cần)  
+            logger.warning(f"[{self.hw_id}] Cancelled")
         finally:
             self.closed = True
 
     def stream_generator(self):
         bytes_per_second = self.rate * 2  # 16-bit PCM = 2 bytes/sample
-        expected_interval = self.chunk_size / bytes_per_second  # ~0.32s for 10240 bytes at 16kHz
+        expected_interval = self.chunk_size / bytes_per_second
 
         while not self.closed:
+            if self.should_stop:  # <- DỪNG KHI FLAG ĐƯỢC KÍCH HOẠT
+                logger.info(f"[{self.hw_id}] stream_generator stopped by flag")
+                return
             try:
                 chunk = self.buff.get(timeout=1.0)
                 if chunk is None:
@@ -196,12 +220,13 @@ class Transcoder:
             except queue.Empty:
                 continue
             except Exception as e:
-                logger.error(f"[{self.hw_id}] Unexpected error in stream_generator: {e}")  # ✅ ADD
+                logger.error(f"[{self.hw_id}] Unexpected error in stream_generator: {e}")
             except asyncio.CancelledError:
-                logger.warning(f"[{self.hw_id}] Cancel")
-                # Dọn dẹp tài nguyên ở đây (nếu cần)  
+                logger.warning(f"[{self.hw_id}] Cancelled")
+
     def write(self, data):
         self.buff.put(data)
+
 
 client_queues = defaultdict(lambda: {
     "audio": Queue(),
@@ -210,7 +235,7 @@ client_queues = defaultdict(lambda: {
     "music_file": Queue()           # ✅ ADD (thay vì 'music_link')
 })
 
-transcoders = {}
+
 
 async def receiver_worker(hw_id):
     buffer = {}
@@ -371,24 +396,19 @@ async def send_audio_chunks(hw_id, audio_bytes):
                 )               
     await asyncio.sleep(0)  # Cho coroutine khác cơ hội chạy
 
- 
+  
 
 async def tts_worker(hw_id):
     while True:
-        payload = await client_queues[hw_id]["audio"].get() #Đọc lại payload audio để lấy ra giá trị tts_mode
         try:
-            msg = json.loads(payload.decode())
-            if msg.get("state") == "start_send" and "tts_mode" in msg:
-                tts_mode = msg["tts_mode"]
-
             answer = await client_queues[hw_id]["answer"].get()        
             logger.info(f"[{hw_id}] Get answer from queue: {answer}")
             # Xử lý TTS
             logger.info(f"[{hw_id}] Processing TTS: {answer}")
-            if tts_mode==1:
+            if config['client']['tts_sending_mode'] ==1:
                 tts_audio = await tts_process(answer,'BYTE',False)
                 await send_audio_chunks(hw_id, tts_audio) # Gọi hàm chia nhỏ TTS và gửi lần lượt
-            elif tts_mode==2:
+            elif config['client']['tts_sending_mode'] ==2:
                 tts_audio = await tts_process(answer,'BYTE',False)
                 # Gửi toàn bộ âm thanh TTS lên MQTT        
                 mqtt_client.publish(
@@ -397,7 +417,7 @@ async def tts_worker(hw_id):
                     ,qos=0
                 )        
                 logger.info(f"[{hw_id}] Published TTS audio.")
-            elif tts_mode==3:
+            elif config['client']['tts_sending_mode'] ==3:
                 tts_file = await tts_process(answer,'FILE',True)
                 logger.info(f"[{hw_id}] Public final message...")
                 if config['http_interface']['mode'] =='secure':
@@ -405,7 +425,7 @@ async def tts_worker(hw_id):
                 else:
                      tts_link = f"http://{config['address']['public']}:{config['http_interface']['port']}/{tts_file}"                   
         except Exception as e:
-            logger.error(f"[{hw_id}] Error processing tts '{answer}': {e}")  # ✅ FIXED: dùng đúng biến
+            logger.error(f"[{hw_id}] Error processing tts: {e}")  # ✅ FIXED: dùng đúng biến
             mqtt_client.publish(
                 f"{CLIENT_TOPIC_PREFIX}/{CLIENT_GROUP}/{hw_id}/{CLIENT_SUB_MESSAGE_TOPIC}",
                 json.dumps({"state": "error_tts_process"})
