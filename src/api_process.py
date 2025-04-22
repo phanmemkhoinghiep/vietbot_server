@@ -5,13 +5,14 @@ from tts_process import tts_process
 from global_vars import config
 
 
-# Cau hinh SSL
-ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-ssl_context.load_cert_chain(
-    certfile='/home/admin/.acme.sh/vietbot.vn_ecc/fullchain.cer',
-    keyfile='/home/admin/.acme.sh/vietbot.vn_ecc/vietbot.vn.key'
-)
-
+if config['http_interface']['mode'] =='secure':
+    # Cau hinh SSL
+    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ssl_context.load_cert_chain(
+        certfile='/home/admin/.acme.sh/vietbot.vn_ecc/fullchain.cer',
+        keyfile='/home/admin/.acme.sh/vietbot.vn_ecc/vietbot.vn.key'
+    )
+    
 app = Quart(__name__, template_folder='templates')
 
 # Cấu hình thư mục upload cho file mp3
