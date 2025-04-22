@@ -30,6 +30,7 @@ seq 4 byte, Audio PCM n byte
 {"state": "tts_result","answer":answer}
 ```
 2.3. Send Audio to Client
+
 #Mode 1: TTS content is splited then send over MQTT
 2.2.1. 
 Message announcing client preparation to send Audio
