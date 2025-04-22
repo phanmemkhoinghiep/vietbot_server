@@ -33,8 +33,8 @@ seq 4 byte, Audio PCM n byte
 2.3. Send Audio to Client
 
 #Mode 1: TTS content is splited then send over MQTT
-2.2.1. 
-Message announcing client preparation to send Audio
+
+2.2.1. Message announcing client preparation to send Audio
 ```sh
 {"state": "start_send","package_number":<package_number>}
 ```
