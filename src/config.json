@@ -4,10 +4,10 @@
         "public": "vietbot.vn",
         "local": "0.0.0.0"
     },
-    "http_interface": {
-				  
+    "http_interface": {				  
         "secure_port": 443,
-        "port": 80
+        "port": 80,
+	"mode": "secure"    
     },
     "ws_interface": {
         "secure_port": 445,
